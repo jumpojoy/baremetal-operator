@@ -2,7 +2,9 @@ name: unit
 
 on:
   workflow_call:
-
+  pull_request:
+    branches:
+    - 'k0rdent-*'
 
 permissions: {}
 

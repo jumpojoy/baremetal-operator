@@ -1,0 +1,59 @@
+name: build-downstream-images-action
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches:
+    - 'k0rdent-*'
+  push:
+    branches:
+    - 'k0rdent-*'
+
+jobs:
+  build_bmo:
+    name: Build BMO container image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DEV_REGISTRY_ENDPOINT: registry.ci.mirantis.com
+      PROD_REGISTRY_ENDPOINT: registry.mirantis.com
+      IMAGE: k0rdent-bm/images/metal3-io/baremetal-operator
+    steps:
+    - name: Checkout source code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get version
+      id: version
+      run: |
+        git_tag=$(git describe --tags --abbrev=0)
+        git_commit_hash=$(git rev-parse --short HEAD)
+        git_version=$git_tag-$git_commit_hash
+        echo "VERSION=$git_version" >> "$GITHUB_OUTPUT"
+        echo "Using image version: $git_version"
+
+    - name: Docker login to MSR
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ github.event_name == 'push' && env.PROD_REGISTRY_ENDPOINT || env.DEV_REGISTRY_ENDPOINT }}
+        username: ${{ github.event_name == 'push' && secrets.REGISTRY_PROD_USERNAME || secrets.REGISTRY_CI_USERNAME }}
+        password: ${{ github.event_name == 'push' && secrets.REGISTRY_PROD_PASSWORD || secrets.REGISTRY_CI_PASSWORD }}
+
+    - name: Build image
+      uses: mr-smithers-excellent/docker-build-push@v6
+      with:
+        image: ${{ env.IMAGE }}
+        tags: ${{ steps.version.outputs.version }}
+        registry: ${{ github.event_name == 'push' && env.PROD_REGISTRY_ENDPOINT || env.DEV_REGISTRY_ENDPOINT }}
+        pushImage: false # Docker login step doesn't work with MSR
+
+    - name: Push image to MSR
+      shell: bash
+      env:
+        REGISTRY: ${{ github.event_name == 'push' && env.PROD_REGISTRY_ENDPOINT || env.DEV_REGISTRY_ENDPOINT }}
+        TAG: ${{ steps.version.outputs.version }}
+      run: docker push ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ env.TAG }}
